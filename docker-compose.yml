@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shopyai_postgres
+    environment:
+      POSTGRES_USER: shopyai_user
+      POSTGRES_PASSWORD: shopyai_password
+      POSTGRES_DB: shopyai_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shopyai_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shopyai_user -d shopyai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: shopyai_backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/shopyai_db
+      SPRING_DATASOURCE_USERNAME: shopyai_user
+      SPRING_DATASOURCE_PASSWORD: shopyai_password
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - shopyai_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: shopyai_scraper
+    environment:
+      BACKEND_API_URL: http://backend:8080/api
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - shopyai_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: shopyai_frontend
+    environment:
+      VITE_API_URL: http://localhost:8080/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - shopyai_network
+
+volumes:
+  postgres_data:
+
+networks:
+  shopyai_network:
+    driver: bridge
